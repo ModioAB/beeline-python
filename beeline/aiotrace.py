@@ -1,10 +1,9 @@
 """Asynchronous tracer implementation.
 
-Requires Python 3.7, because it uses the contextvars module.
+This requires Python 3.7, because it uses the contextvars module.
 
 """
 import asyncio
-import asyncio.tasks
 import contextvars  # pylint: disable=import-error
 
 from beeline.trace import Tracer
@@ -13,25 +12,25 @@ current_trace_var = contextvars.ContextVar("current_trace")
 
 
 def create_task_factory(parent_factory):
-    """Create a task factory that copies the current tracing context."""
-    def task_factory_impl(loop, coro):
-        async def coro_wrapper():  # pylint: disable=syntax-error
-            trace = current_trace_var.get(None)
-            if trace:
-                token = current_trace_var.set(trace.copy())
-            else:
-                token = None
+    """Create a task factory that makes a copy of the current trace.
 
-            try:
-                return await coro
-            finally:
-                if token is not None:
-                    current_trace_var.reset(token)
+    New tasks have their own context variables, but the current_trace
+    context variable still refers to the same Trace object as the one
+    in the parent task. This task factory replaces the Trace object
+    with a copy of itself.
+
+    """
+    def task_factory_impl(loop, coro):
+        async def wrapper():
+            current_trace = current_trace_var.get(None)
+            if current_trace is not None:
+                current_trace_var.set(current_trace.copy())
+            return await coro
 
         if parent_factory is None:
-            task = asyncio.tasks.Task(coro_wrapper(), loop=loop)
+            task = asyncio.tasks.Task(wrapper(), loop=loop)
         else:
-            task = parent_factory(coro_wrapper())
+            task = parent_factory(wrapper())
 
         return task
 
@@ -41,7 +40,9 @@ def create_task_factory(parent_factory):
 
 class AsyncioTracer(Tracer):
     def __init__(self, client):
+        """Initialize, and ensure that our task factory is set up."""
         super().__init__(client)
+
         loop = asyncio.get_running_loop()  # pylint: disable=no-member
 
         task_factory = loop.get_task_factory()

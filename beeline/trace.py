@@ -24,7 +24,7 @@ class Trace(object):
         self.rollup_fields = defaultdict(float)
 
     def copy(self):
-        '''Return a copy of the trace state for use in another thread.'''
+        '''Copy the trace state for use in another thread or context.'''
         result = Trace(self.id)
         result.stack = copy.copy(self.stack)
         result.fields = copy.copy(self.fields)
